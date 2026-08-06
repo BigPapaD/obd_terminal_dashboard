@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from config_io import load_dashboard_config, load_unit_preferences
+from config_io import load_dashboard_config, load_display_zoom, load_unit_preferences
 from display_logic import adjust_threshold
 from interactive_ui import run_interactive
 from models import GaugeSpec, GaugeThreshold
@@ -35,6 +35,7 @@ __all__ = [
     "fuel_level_parser",
     "intake_temp_parser",
     "load_dashboard_config",
+    "load_display_zoom",
     "load_unit_preferences",
     "parse_obd_response",
     "render_bar",
@@ -67,6 +68,7 @@ def main() -> None:
         gauges = build_gauge_list(args.gauge)
         thresholds = load_dashboard_config(args.config)
         unit_preferences = load_unit_preferences(args.config)
+        zoom = load_display_zoom(args.config)
     except ValueError as exc:
         sys.stderr.write(str(exc) + "\n")
         sys.exit(2)
@@ -78,7 +80,7 @@ def main() -> None:
 
     if args.demo:
         if args.plain:
-            run_demo(gauges, thresholds, unit_preferences, args.interval, use_color=use_color)
+            run_demo(gauges, thresholds, unit_preferences, args.interval, use_color=use_color, zoom=zoom)
         else:
             run_interactive(
                 gauges=gauges,
@@ -88,6 +90,7 @@ def main() -> None:
                 config_path=args.config,
                 demo=True,
                 client=None,
+                zoom=zoom,
             )
         return
 
@@ -96,7 +99,7 @@ def main() -> None:
         port_name = client.connect()
         print(f"Connected to {port_name}")
         if args.plain:
-            run_live(client, gauges, thresholds, unit_preferences, args.interval, use_color=use_color)
+            run_live(client, gauges, thresholds, unit_preferences, args.interval, use_color=use_color, zoom=zoom)
         else:
             run_interactive(
                 gauges=gauges,
@@ -106,6 +109,7 @@ def main() -> None:
                 config_path=args.config,
                 demo=False,
                 client=client,
+                zoom=zoom,
             )
     except KeyboardInterrupt:
         print("\nStopped")

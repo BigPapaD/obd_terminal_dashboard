@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import time
 from dataclasses import replace
 from typing import Dict, List, Sequence
@@ -95,8 +96,12 @@ def render_dashboard(
     thresholds: Dict[str, GaugeThreshold],
     unit_preferences: UnitPreferences,
     use_color: bool,
+    zoom: float = 1.0,
 ) -> str:
     lines = []
+    cols = shutil.get_terminal_size((100, 24)).columns
+    safe_zoom = max(0.7, min(3.0, zoom))
+    dynamic_bar_width = max(16, min(90, int((cols - 36) / safe_zoom)))
     title = colorize("OBD-II TERMINAL // CYBERPUNK", "bright_cyan", use_color)
     lines.append(colorize(title, "bold", use_color))
     lines.append(colorize("=" * 84, "bright_blue", use_color))
@@ -117,6 +122,7 @@ def render_dashboard(
                 value_to_display(gauge, gauge.max_value, unit_preferences),
                 display_unit_for_gauge(gauge, unit_preferences),
                 display_threshold,
+                width=dynamic_bar_width,
                 use_color=use_color,
             )
         )
@@ -131,10 +137,11 @@ def run_demo(
     unit_preferences: UnitPreferences,
     interval: float = 0.5,
     use_color: bool = True,
+    zoom: float = 1.0,
 ) -> None:
     while True:
         values = collect_demo_values()
-        print("\033[2J\033[H" + render_dashboard(values, gauges, thresholds, unit_preferences, use_color), end="", flush=True)
+        print("\033[2J\033[H" + render_dashboard(values, gauges, thresholds, unit_preferences, use_color, zoom=zoom), end="", flush=True)
         time.sleep(interval)
 
 
@@ -145,8 +152,9 @@ def run_live(
     unit_preferences: UnitPreferences,
     interval: float = 0.75,
     use_color: bool = True,
+    zoom: float = 1.0,
 ) -> None:
     while True:
         values = collect_live_values(client, gauges)
-        print("\033[2J\033[H" + render_dashboard(values, gauges, thresholds, unit_preferences, use_color), end="", flush=True)
+        print("\033[2J\033[H" + render_dashboard(values, gauges, thresholds, unit_preferences, use_color, zoom=zoom), end="", flush=True)
         time.sleep(interval)

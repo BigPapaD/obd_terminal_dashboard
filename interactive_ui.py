@@ -22,24 +22,36 @@ from models import GaugeSpec, GaugeThreshold, PanelRect, UnitPreferences
 from obd_core import GAUGE_SPECS, OBDClient, collect_demo_values, collect_live_values, merge_latest_values
 
 
-def render_large_speed_lines(speed_digits: str, unit_text: str, available_rows: int) -> List[str]:
-    spaced = " ".join(list(speed_digits))
-    primary = f"{spaced} {unit_text}".strip()
-    if available_rows <= 1:
-        return [primary]
+BIG_SPEED_GLYPHS: Dict[str, tuple[str, str, str, str, str]] = {
+    "0": (" ### ", "#   #", "#   #", "#   #", " ### "),
+    "1": ("  #  ", " ##  ", "  #  ", "  #  ", " ### "),
+    "2": (" ### ", "    #", " ### ", "#    ", "#####"),
+    "3": ("#### ", "    #", " ### ", "    #", "#### "),
+    "4": ("#   #", "#   #", "#####", "    #", "    #"),
+    "5": ("#####", "#    ", "#### ", "    #", "#### "),
+    "6": (" ### ", "#    ", "#### ", "#   #", " ### "),
+    "7": ("#####", "   # ", "  #  ", " #   ", "#    "),
+    "8": (" ### ", "#   #", " ### ", "#   #", " ### "),
+    "9": (" ### ", "#   #", " ####", "    #", " ### "),
+    "-": ("     ", "     ", "#####", "     ", "     "),
+    " ": ("     ", "     ", "     ", "     ", "     "),
+}
 
-    if available_rows >= 6:
-        repeat = 3
-    elif available_rows >= 4:
-        repeat = 2
-    else:
-        repeat = 1
 
-    lines = [primary for _ in range(repeat)]
-    if available_rows > repeat:
-        compact = f"{speed_digits} {unit_text}".strip()
-        lines.extend([compact for _ in range(min(available_rows - repeat, 2))])
-    return lines[:available_rows]
+def render_big_speed_lines(speed_digits: str, x_scale: int, y_scale: int) -> List[str]:
+    rows = ["", "", "", "", ""]
+    for char in speed_digits:
+        glyph = BIG_SPEED_GLYPHS.get(char, BIG_SPEED_GLYPHS[" "])
+        for idx in range(5):
+            expanded = "".join(ch * x_scale for ch in glyph[idx])
+            rows[idx] += expanded + (" " * x_scale)
+
+    output: List[str] = []
+    for row in rows:
+        line = row.rstrip()
+        for _ in range(y_scale):
+            output.append(line)
+    return output
 
 
 def point_in_rect(y: int, x: int, rect: PanelRect) -> bool:
@@ -291,6 +303,7 @@ def draw_gauges_widget(
     edit_mode: bool,
     edit_target: str,
     unit_preferences: UnitPreferences,
+    zoom: float,
     theme: Dict[str, int],
 ) -> None:
     row_start = rect.top + 1
@@ -312,6 +325,7 @@ def draw_gauges_widget(
             edit_mode=edit_mode,
             edit_target=edit_target,
             unit_preferences=unit_preferences,
+            zoom=zoom,
             row_width=row_width,
         )
         safe_addstr(
@@ -333,6 +347,7 @@ def draw_speed_widget(
     edit_active: bool,
     edit_target: str,
     unit_preferences: UnitPreferences,
+    zoom: float,
     theme: Dict[str, int],
 ) -> None:
     speed_gauge = GAUGE_SPECS["speed"]
@@ -347,13 +362,34 @@ def draw_speed_widget(
     speed_focus_attr = theme["selected"] if edit_mode and edit_target == "speed" else theme["title_focus"]
 
     reserved_rows = 2 if edit_mode and rect.height >= 7 else 0
-    digit_rows_available = max(1, rect.height - 2 - reserved_rows)
-    digit_lines = render_large_speed_lines(speed_digits, unit_text, digit_rows_available)
+    unit_rows = 1
+    digit_rows_available = max(1, rect.height - 2 - reserved_rows - unit_rows)
+
+    # Higher zoom prefers a larger glyph scale; renderer still caps to fit available panel space.
+    zoom_pref = max(0.7, min(3.0, zoom))
+    if zoom_pref >= 1.8:
+        scale_candidates = [(3, 2), (2, 2), (2, 1), (1, 1)]
+    elif zoom_pref >= 1.2:
+        scale_candidates = [(2, 2), (2, 1), (1, 1)]
+    else:
+        scale_candidates = [(2, 1), (1, 1)]
+
+    digit_lines = [speed_digits]
+    for x_scale, y_scale in scale_candidates:
+        candidate = render_big_speed_lines(speed_digits, x_scale=x_scale, y_scale=y_scale)
+        if candidate and len(candidate) <= digit_rows_available and len(candidate[0]) <= inner_width:
+            digit_lines = candidate
+            break
 
     top_offset = max(0, (digit_rows_available - len(digit_lines)) // 2)
     for idx, line in enumerate(digit_lines[:digit_rows_available]):
         x_offset = max(0, (inner_width - len(line)) // 2)
         safe_addstr(stdscr, rect.top + 1 + top_offset + idx, rect.left + 2 + x_offset, line[:inner_width], speed_focus_attr)
+
+    unit_line_row = rect.top + 1 + digit_rows_available
+    unit_line = f"{speed_digits.strip()} {unit_text}"
+    unit_x_offset = max(0, (inner_width - len(unit_line)) // 2)
+    safe_addstr(stdscr, unit_line_row, rect.left + 2 + unit_x_offset, unit_line[:inner_width], theme["header"])
 
     if edit_mode and rect.height >= 6:
         warn_row = rect.top + rect.height - 3
@@ -439,6 +475,7 @@ def draw_controls_widget(
     edit_active: bool,
     edit_target: str,
     interval: float,
+    zoom: float,
     message: str,
     thresholds: Dict[str, GaugeThreshold],
     unit_preferences: UnitPreferences,
@@ -462,7 +499,7 @@ def draw_controls_widget(
         f"mode: {mode_text}",
         f"field: {field_text}",
         f"warn:{warning_text} crit:{critical_text} {display_unit_for_gauge(gauge, unit_preferences)}",
-        f"dir:{threshold.direction}  refresh:{interval:.2f}s",
+        f"dir:{threshold.direction}  refresh:{interval:.2f}s zoom:{zoom:.2f}x",
         f"{message}",
     ]
     hints = [
@@ -470,6 +507,7 @@ def draw_controls_widget(
         "Tab target/field  ↑/↓ row (edit)",
         "←/→ or h/l tune  w/c field  ,/. critical",
         "u units  d direction  s save  +/- rate",
+        "z/x zoom in/out",
         "Mouse: left select/focus  right field",
         "Mouse wheel: tune selected threshold",
         "q quit",
@@ -493,7 +531,7 @@ def draw_controls_widget(
 
 
 def draw_footer(stdscr, rect: PanelRect, theme: Dict[str, int]) -> None:
-    footer = "Keys: e/Tab/Enter/arrows/u/s/q | Mouse: left focus, right field, wheel tune"
+    footer = "Keys: e/Tab/Enter/arrows/u/s/z/x/q | Mouse: left focus, right field, wheel tune"
     safe_addstr(stdscr, rect.top, rect.left, footer[: rect.width], theme["footer"])
 
 
@@ -505,12 +543,14 @@ def render_compact_row(
     edit_mode: bool,
     edit_target: str,
     unit_preferences: UnitPreferences,
+    zoom: float,
     row_width: int,
 ) -> str:
     state = threshold_status(value, threshold)
     is_active_target = selected and edit_target == "selected"
     pointer = "▶" if selected and edit_mode and is_active_target else " "
-    bar_width = max(18, min(46, row_width - 28))
+    safe_zoom = max(0.7, min(3.0, zoom))
+    bar_width = max(10, min(46, int((row_width - 28) / safe_zoom)))
     ratio = clamp((value - gauge.min_value) / (gauge.max_value - gauge.min_value), 0.0, 1.0) if gauge.max_value > gauge.min_value else 0.0
     bar = render_regular_bar(ratio, bar_width)
     display_value = value_to_display(gauge, value, unit_preferences)
@@ -533,6 +573,7 @@ def draw_interactive_dashboard(
     edit_active: bool,
     edit_target: str,
     interval: float,
+    zoom: float,
     message: str,
     use_color: bool,
     unit_preferences: UnitPreferences,
@@ -578,9 +619,10 @@ def draw_interactive_dashboard(
         edit_mode,
         edit_target,
         unit_preferences,
+        zoom,
         theme,
     )
-    draw_speed_widget(stdscr, layout["speed"], values, thresholds, selected_field, edit_mode, edit_active, edit_target, unit_preferences, theme)
+    draw_speed_widget(stdscr, layout["speed"], values, thresholds, selected_field, edit_mode, edit_active, edit_target, unit_preferences, zoom, theme)
     draw_alerts_widget(
         stdscr,
         layout["alerts"],
@@ -605,6 +647,7 @@ def draw_interactive_dashboard(
         edit_active,
         edit_target,
         interval,
+        zoom,
         message,
         thresholds,
         unit_preferences,
@@ -623,6 +666,7 @@ def run_interactive(
     config_path: str,
     demo: bool,
     client: OBDClient | None = None,
+    zoom: float = 1.0,
 ) -> None:
     try:
         import curses
@@ -654,7 +698,7 @@ def run_interactive(
         return live_values
 
     def loop(stdscr) -> None:
-        nonlocal selected_index, selected_field, message, interval, values, edit_mode, edit_active, edit_target, unit_preferences
+        nonlocal selected_index, selected_field, message, interval, values, edit_mode, edit_active, edit_target, unit_preferences, zoom
 
         curses.curs_set(0)
         stdscr.timeout(20)
@@ -716,6 +760,7 @@ def run_interactive(
                 edit_active,
                 edit_target,
                 interval,
+                zoom,
                 message,
                 use_color=color_enabled,
                 unit_preferences=unit_preferences,
@@ -895,9 +940,15 @@ def run_interactive(
                 message = f"interval {interval:.2f}s"
             elif key in (ord("s"), ord("S")):
                 try:
-                    save_dashboard_config(config_path, thresholds, unit_preferences)
+                    save_dashboard_config(config_path, thresholds, unit_preferences, zoom=zoom)
                     message = f"saved {config_path}"
                 except Exception as exc:
                     message = f"save failed: {exc}"
+            elif key in (ord("z"), ord("Z")):
+                zoom = min(3.0, zoom + 0.1)
+                message = f"zoom {zoom:.2f}x"
+            elif key in (ord("x"), ord("X")):
+                zoom = max(0.7, zoom - 0.1)
+                message = f"zoom {zoom:.2f}x"
 
     curses.wrapper(loop)

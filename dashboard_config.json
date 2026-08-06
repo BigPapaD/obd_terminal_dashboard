@@ -40,6 +40,9 @@
     "speed": "mph",
     "temperature": "f"
   },
+  "display": {
+    "zoom": 1.0
+  },
   "pid_overrides": {},
   "custom_gauges": {}
 }

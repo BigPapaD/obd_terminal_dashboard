@@ -6,7 +6,7 @@ A small Python terminal dashboard that talks to a USB ELM327 adapter over serial
 
 - Connects to an ELM327 adapter over serial
 - Displays a simple interactive terminal dashboard with regular bars
-- Shows speed as a seven-segment style digital readout panel
+- Shows speed as a large high-visibility digital readout panel
 - Supports a demo mode with simulated values
 - Lets you choose which gauges to display with `--gauge`
 - Supports per-gauge warning and critical thresholds from a config file
@@ -106,6 +106,21 @@ Use a custom config path:
 python3 app.py --demo --config ./dashboard_config.json
 ```
 
+### Display zoom
+
+You can scale the dashboard with a global zoom value:
+
+```json
+{
+	"display": {
+		"zoom": 1.2
+	}
+}
+```
+
+Higher `zoom` means larger text/spacing and narrower bars so everything still fits the screen.
+Recommended range is `0.7` to `3.0`.
+
 ### Configuring PIDs and custom gauges
 
 You can override built-in PIDs without editing Python code:
@@ -164,6 +179,7 @@ Supported parser names for `custom_gauges` are:
 - `Mouse wheel`: tune the active threshold while in edit mode
 - `d`: toggle threshold direction (`high` or `low`)
 - `+` / `-`: decrease/increase refresh interval
+- `z` / `x`: zoom in/out (interactive mode)
 - `s`: save current thresholds to your config file
 - `q`: quit
 

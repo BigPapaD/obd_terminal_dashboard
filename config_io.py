@@ -9,6 +9,10 @@ from models import DEFAULT_THRESHOLDS, DEFAULT_UNIT_PREFERENCES, GaugeThreshold,
 from obd_core import GAUGE_SPECS
 
 
+def clamp_zoom(value: float) -> float:
+    return max(0.7, min(3.0, value))
+
+
 def load_dashboard_config(config_path: str) -> Dict[str, GaugeThreshold]:
     thresholds = dict(DEFAULT_THRESHOLDS)
     for key in GAUGE_SPECS:
@@ -83,10 +87,36 @@ def load_unit_preferences(config_path: str) -> UnitPreferences:
     return units
 
 
+def load_display_zoom(config_path: str) -> float:
+    path = Path(config_path)
+    if not path.exists():
+        return 1.0
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception as exc:
+        raise RuntimeError(f"Unable to read config file '{config_path}': {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise RuntimeError("Config root must be a JSON object")
+
+    display_data = data.get("display", {})
+    if not isinstance(display_data, dict):
+        return 1.0
+
+    zoom_raw = display_data.get("zoom", 1.0)
+    try:
+        return clamp_zoom(float(zoom_raw))
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def save_dashboard_config(
     config_path: str,
     thresholds: Dict[str, GaugeThreshold],
     unit_preferences: Optional[UnitPreferences] = None,
+    zoom: float = 1.0,
 ) -> None:
     path = Path(config_path)
     units = unit_preferences or DEFAULT_UNIT_PREFERENCES
@@ -104,6 +134,9 @@ def save_dashboard_config(
         "units": {
             "speed": units.speed,
             "temperature": units.temperature,
+        },
+        "display": {
+            "zoom": round(clamp_zoom(zoom), 2),
         },
     }
     for key in ("pid_overrides", "custom_gauges"):
