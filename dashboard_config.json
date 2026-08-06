@@ -1,0 +1,45 @@
+{
+  "gauges": {
+    "coolant_temp": {
+      "warning": 102.0,
+      "critical": 112.0,
+      "direction": "high"
+    },
+    "engine_load": {
+      "warning": 75.0,
+      "critical": 90.0,
+      "direction": "high"
+    },
+    "fuel_level": {
+      "warning": 20.0,
+      "critical": 10.0,
+      "direction": "low"
+    },
+    "intake_temp": {
+      "warning": 50.0,
+      "critical": 65.0,
+      "direction": "high"
+    },
+    "rpm": {
+      "warning": 4200.0,
+      "critical": 5200.0,
+      "direction": "high"
+    },
+    "speed": {
+      "warning": 130.0,
+      "critical": 170.0,
+      "direction": "high"
+    },
+    "throttle": {
+      "warning": 70.0,
+      "critical": 90.0,
+      "direction": "high"
+    }
+  },
+  "units": {
+    "speed": "kmh",
+    "temperature": "c"
+  },
+  "pid_overrides": {},
+  "custom_gauges": {}
+}
