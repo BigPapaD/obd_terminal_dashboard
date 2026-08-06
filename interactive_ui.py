@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import replace
 import time
-from typing import Deque, Dict, List, Sequence
+from typing import Dict, List, Sequence
 
 from config_io import save_dashboard_config
 from display_logic import (
@@ -14,7 +13,6 @@ from display_logic import (
     format_gauge_value,
     render_regular_bar,
     segment_level,
-    sparkline,
     threshold_status,
     threshold_step_base,
     toggle_unit_preferences,
@@ -24,30 +22,24 @@ from models import GaugeSpec, GaugeThreshold, PanelRect, UnitPreferences
 from obd_core import GAUGE_SPECS, OBDClient, collect_demo_values, collect_live_values, merge_latest_values
 
 
-SEVEN_SEG_GLYPHS: Dict[str, tuple[str, str, str]] = {
-    "0": (" _ ", "| |", "|_|"),
-    "1": ("   ", "  |", "  |"),
-    "2": (" _ ", " _|", "|_ "),
-    "3": (" _ ", " _|", " _|"),
-    "4": ("   ", "|_|", "  |"),
-    "5": (" _ ", "|_ ", " _|"),
-    "6": (" _ ", "|_ ", "|_|"),
-    "7": (" _ ", "  |", "  |"),
-    "8": (" _ ", "|_|", "|_|"),
-    "9": (" _ ", "|_|", " _|"),
-    "-": ("   ", " _ ", "   "),
-    " ": ("   ", "   ", "   "),
-}
+def render_large_speed_lines(speed_digits: str, unit_text: str, available_rows: int) -> List[str]:
+    spaced = " ".join(list(speed_digits))
+    primary = f"{spaced} {unit_text}".strip()
+    if available_rows <= 1:
+        return [primary]
 
+    if available_rows >= 6:
+        repeat = 3
+    elif available_rows >= 4:
+        repeat = 2
+    else:
+        repeat = 1
 
-def render_seven_segment_lines(text: str) -> List[str]:
-    rows = ["", "", ""]
-    for char in text:
-        glyph = SEVEN_SEG_GLYPHS.get(char, SEVEN_SEG_GLYPHS[" "])
-        rows[0] += glyph[0] + " "
-        rows[1] += glyph[1] + " "
-        rows[2] += glyph[2] + " "
-    return [row.rstrip() for row in rows]
+    lines = [primary for _ in range(repeat)]
+    if available_rows > repeat:
+        compact = f"{speed_digits} {unit_text}".strip()
+        lines.extend([compact for _ in range(min(available_rows - repeat, 2))])
+    return lines[:available_rows]
 
 
 def point_in_rect(y: int, x: int, rect: PanelRect) -> bool:
@@ -139,7 +131,7 @@ def build_layout(max_y: int, max_x: int) -> Dict[str, PanelRect]:
     footer_height = 1
     body_top = 1
     body_height = max_y - body_top - footer_height
-    right_width = max(30, min(44, max_x // 3))
+    right_width = max(28, min(38, max_x // 3))
     left_width = max_x - right_width
 
     main_rect = PanelRect(top=body_top, left=0, height=body_height, width=left_width)
@@ -179,6 +171,7 @@ def init_curses_theme(curses_module) -> Dict[str, int]:
         "crit": 0,
         "muted": 0,
         "footer": 0,
+        "row_emphasis": 0,
     }
     if not curses_module.has_colors():
         return theme
@@ -205,6 +198,7 @@ def init_curses_theme(curses_module) -> Dict[str, int]:
     theme["crit"] = curses_module.color_pair(6) | curses_module.A_BOLD
     theme["muted"] = curses_module.color_pair(7)
     theme["footer"] = curses_module.color_pair(1)
+    theme["row_emphasis"] = curses_module.A_BOLD
     return theme
 
 
@@ -282,8 +276,8 @@ def row_attr_from_state(state: str, selected: bool, theme: Dict[str, int]) -> in
     else:
         base = theme["ok"]
     if selected:
-        return base | theme["selected"]
-    return base
+        return base | theme["selected"] | theme.get("row_emphasis", 0)
+    return base | theme.get("row_emphasis", 0)
 
 
 def draw_gauges_widget(
@@ -292,7 +286,6 @@ def draw_gauges_widget(
     gauges: Sequence[GaugeSpec],
     values: Dict[str, float],
     thresholds: Dict[str, GaugeThreshold],
-    history: Dict[str, Deque[float]],
     selected_index: int,
     selected_field: str,
     edit_mode: bool,
@@ -315,7 +308,6 @@ def draw_gauges_widget(
             gauge,
             value,
             threshold,
-            list(history[gauge.key]),
             selected=(idx == selected_index),
             edit_mode=edit_mode,
             edit_target=edit_target,
@@ -335,7 +327,6 @@ def draw_speed_widget(
     stdscr,
     rect: PanelRect,
     values: Dict[str, float],
-    history: Dict[str, Deque[float]],
     thresholds: Dict[str, GaugeThreshold],
     selected_field: str,
     edit_mode: bool,
@@ -348,28 +339,24 @@ def draw_speed_widget(
     speed_threshold = thresholds.get("speed", GaugeThreshold())
     speed_value = values.get("speed", 0.0)
     inner_width = max(1, rect.width - 4)
-    speed_digits = format_gauge_value(speed_gauge, speed_value, unit_preferences)
-    speed_text = render_speed_row(speed_value, inner_width, unit_preferences)
-    seven_seg_lines = render_seven_segment_lines(speed_digits.rjust(3)[-3:])
+    speed_digits = format_gauge_value(speed_gauge, speed_value, unit_preferences).rjust(3)[-3:]
     warn_text = format_gauge_value(speed_gauge, speed_threshold.warning or 0.0, unit_preferences)
     crit_text = format_gauge_value(speed_gauge, speed_threshold.critical or 0.0, unit_preferences)
     unit_text = display_unit_for_gauge(speed_gauge, unit_preferences)
-    if edit_mode and edit_target == "speed":
-        edit_tag = "SPEED EDIT" if edit_active else "SPEED READY"
-    else:
-        edit_tag = "speed view"
+    edit_tag = "SPEED EDIT" if edit_mode and edit_target == "speed" and edit_active else "SPEED READY"
     speed_focus_attr = theme["selected"] if edit_mode and edit_target == "speed" else theme["title_focus"]
-    safe_addstr(stdscr, rect.top + 1, rect.left + 2, "PRIMARY VELOCITY", theme["muted"])
 
-    if rect.height >= 9:
-        for idx, line in enumerate(seven_seg_lines):
-            safe_addstr(stdscr, rect.top + 2 + idx, rect.left + 2, line[:inner_width], speed_focus_attr)
-        safe_addstr(stdscr, rect.top + 5, rect.left + 2, f"{unit_text} digital"[:inner_width], theme["header"])
-    else:
-        safe_addstr(stdscr, rect.top + 2, rect.left + 2, speed_text[:inner_width], speed_focus_attr)
+    reserved_rows = 2 if edit_mode and rect.height >= 7 else 0
+    digit_rows_available = max(1, rect.height - 2 - reserved_rows)
+    digit_lines = render_large_speed_lines(speed_digits, unit_text, digit_rows_available)
 
-    if rect.height >= 6:
-        warn_row = rect.top + (6 if rect.height >= 9 else 3)
+    top_offset = max(0, (digit_rows_available - len(digit_lines)) // 2)
+    for idx, line in enumerate(digit_lines[:digit_rows_available]):
+        x_offset = max(0, (inner_width - len(line)) // 2)
+        safe_addstr(stdscr, rect.top + 1 + top_offset + idx, rect.left + 2 + x_offset, line[:inner_width], speed_focus_attr)
+
+    if edit_mode and rect.height >= 6:
+        warn_row = rect.top + rect.height - 3
         safe_addstr(
             stdscr,
             warn_row,
@@ -377,8 +364,8 @@ def draw_speed_widget(
             f"warn:{warn_text} crit:{crit_text} {unit_text}"[:inner_width],
             theme["warn" if selected_field == "warning" else "crit"],
         )
-    if rect.height >= 7:
-        edit_row = rect.top + (7 if rect.height >= 9 else 4)
+    if edit_mode and rect.height >= 7:
+        edit_row = rect.top + rect.height - 2
         safe_addstr(stdscr, edit_row, rect.left + 2, edit_tag[:inner_width], theme["muted"])
 
 
@@ -514,7 +501,6 @@ def render_compact_row(
     gauge: GaugeSpec,
     value: float,
     threshold: GaugeThreshold,
-    history: Sequence[float],
     selected: bool,
     edit_mode: bool,
     edit_target: str,
@@ -524,17 +510,15 @@ def render_compact_row(
     state = threshold_status(value, threshold)
     is_active_target = selected and edit_target == "selected"
     pointer = "▶" if selected and edit_mode and is_active_target else " "
-    trend_width = max(8, min(18, row_width // 4))
-    trend = sparkline(history, gauge.min_value, gauge.max_value, width=trend_width)
-    bar_width = max(8, min(24, row_width - 42 - trend_width))
+    bar_width = max(18, min(46, row_width - 28))
     ratio = clamp((value - gauge.min_value) / (gauge.max_value - gauge.min_value), 0.0, 1.0) if gauge.max_value > gauge.min_value else 0.0
     bar = render_regular_bar(ratio, bar_width)
     display_value = value_to_display(gauge, value, unit_preferences)
     unit_text = display_unit_for_gauge(gauge, unit_preferences)
     alert_text = state if state in {"WARN", "CRIT"} else ""
     return (
-        f"{pointer} {gauge.label:<11} {display_value:6.1f} {unit_text:<4} "
-        f"[{bar}] {trend} {alert_text:<4}"
+        f"{pointer} {gauge.label.upper():<12} {display_value:7.1f} {unit_text:<4} "
+        f"[{bar}] {alert_text:<5}"
     )
 
 
@@ -543,7 +527,6 @@ def draw_interactive_dashboard(
     gauges: Sequence[GaugeSpec],
     values: Dict[str, float],
     thresholds: Dict[str, GaugeThreshold],
-    history: Dict[str, Deque[float]],
     selected_index: int,
     selected_field: str,
     edit_mode: bool,
@@ -590,7 +573,6 @@ def draw_interactive_dashboard(
         gauges,
         values,
         thresholds,
-        history,
         selected_index,
         selected_field,
         edit_mode,
@@ -598,7 +580,7 @@ def draw_interactive_dashboard(
         unit_preferences,
         theme,
     )
-    draw_speed_widget(stdscr, layout["speed"], values, history, thresholds, selected_field, edit_mode, edit_active, edit_target, unit_preferences, theme)
+    draw_speed_widget(stdscr, layout["speed"], values, thresholds, selected_field, edit_mode, edit_active, edit_target, unit_preferences, theme)
     draw_alerts_widget(
         stdscr,
         layout["alerts"],
@@ -648,9 +630,6 @@ def run_interactive(
         raise RuntimeError(f"Interactive mode requires curses support: {exc}") from exc
 
     values: Dict[str, float] = {}
-    history: Dict[str, Deque[float]] = {g.key: deque(maxlen=90) for g in gauges}
-    if "speed" not in history:
-        history["speed"] = deque(maxlen=90)
     selected_index = 0
     selected_field = "warning"
     edit_mode = False
@@ -724,10 +703,6 @@ def run_interactive(
             now = time.time()
             if now - last_tick >= interval:
                 values = merge_latest_values(values, fetch_values())
-                for gauge in gauges:
-                    current = values.get(gauge.key)
-                    if current is not None:
-                        history[gauge.key].append(current)
                 last_tick = now
 
             draw_interactive_dashboard(
@@ -735,7 +710,6 @@ def run_interactive(
                 gauges,
                 values,
                 thresholds,
-                history,
                 selected_index,
                 selected_field,
                 edit_mode,

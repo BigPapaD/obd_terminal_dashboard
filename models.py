@@ -33,8 +33,8 @@ class PanelRect:
 
 @dataclass
 class UnitPreferences:
-    speed: str = "kmh"
-    temperature: str = "c"
+    speed: str = "mph"
+    temperature: str = "f"
 
 
 DEFAULT_THRESHOLDS: Dict[str, GaugeThreshold] = {
@@ -48,7 +48,7 @@ DEFAULT_THRESHOLDS: Dict[str, GaugeThreshold] = {
 }
 
 
-DEFAULT_UNIT_PREFERENCES = UnitPreferences(speed="kmh", temperature="c")
+DEFAULT_UNIT_PREFERENCES = UnitPreferences(speed="mph", temperature="f")
 SPEED_KMH_TO_MPH = 0.621371
 TEMP_GAUGE_KEYS = {"coolant_temp", "intake_temp"}
 

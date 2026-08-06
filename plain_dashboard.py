@@ -24,7 +24,7 @@ def render_bar(
     maximum: float,
     unit: str,
     threshold: GaugeThreshold,
-    width: int = 44,
+    width: int = 72,
     use_color: bool = True,
 ) -> str:
     ratio = clamp((value - minimum) / (maximum - minimum), 0.0, 1.0) if maximum > minimum else 0.0
@@ -42,7 +42,7 @@ def render_bar(
     elif value_level == "critical":
         value_color = "red"
 
-    value_text = colorize(f"{value:7.1f}", value_color, use_color)
+    value_text = colorize(f"{value:10.1f}", value_color, use_color)
     threshold_bits: List[str] = []
     if threshold.warning is not None:
         threshold_bits.append(f"warn:{threshold.warning:.0f}")
@@ -50,8 +50,13 @@ def render_bar(
         threshold_bits.append(f"crit:{threshold.critical:.0f}")
     threshold_bits.append(f"dir:{threshold.direction}")
     threshold_text = " " + " ".join(threshold_bits) if threshold_bits else ""
-    gauge_label = colorize(f"{label:<12}", "bright_magenta", use_color)
-    return f"{gauge_label} [ {bar} ] {value_text} {unit}{threshold_text}"
+    gauge_label = colorize(f"{label.upper():<14}", "bright_magenta", use_color)
+
+    header = f"{gauge_label} {value_text} {unit}"
+    info = colorize(threshold_text.strip(), "dim", use_color) if threshold_text.strip() else ""
+    top_line = f"{header}  {info}".rstrip()
+    bottom_line = f"{' ' * 2}[{bar}]"
+    return f"{top_line}\n{bottom_line}"
 
 
 def render_speed_digital_line(
@@ -70,7 +75,7 @@ def render_speed_digital_line(
         value_color = "red"
 
     label_text = colorize(f"{gauge.label:<12}", "bright_magenta", use_color)
-    digital_text = colorize(f"{display_value:>7}", value_color, use_color)
+    digital_text = colorize(f"{display_value:>10}", value_color, use_color)
     threshold_bits: List[str] = []
     if threshold.warning is not None:
         threshold_bits.append(f"warn:{format_gauge_value(gauge, threshold.warning, unit_preferences)}")
@@ -78,7 +83,10 @@ def render_speed_digital_line(
         threshold_bits.append(f"crit:{format_gauge_value(gauge, threshold.critical, unit_preferences)}")
     threshold_bits.append(f"dir:{threshold.direction}")
     threshold_text = " " + " ".join(threshold_bits)
-    return f"{label_text} {digital_text} {display_unit_for_gauge(gauge, unit_preferences)}{threshold_text}"
+    unit_text = display_unit_for_gauge(gauge, unit_preferences)
+    top_line = f"{label_text} {digital_text} {unit_text}"
+    bottom_line = colorize(f"{' ' * 2}{threshold_text.strip()}", "dim", use_color)
+    return f"{top_line}\n{bottom_line}"
 
 
 def render_dashboard(

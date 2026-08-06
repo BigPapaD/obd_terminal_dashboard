@@ -37,8 +37,8 @@
     }
   },
   "units": {
-    "speed": "kmh",
-    "temperature": "c"
+    "speed": "mph",
+    "temperature": "f"
   },
   "pid_overrides": {},
   "custom_gauges": {}
