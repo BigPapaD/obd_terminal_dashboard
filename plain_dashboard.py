@@ -101,7 +101,8 @@ def render_dashboard(
     lines = []
     cols = shutil.get_terminal_size((100, 24)).columns
     safe_zoom = max(0.7, min(3.0, zoom))
-    dynamic_bar_width = max(16, min(90, int((cols - 36) / safe_zoom)))
+    zoom_scale = max(0.85, safe_zoom * 0.75)
+    dynamic_bar_width = max(24, min(120, int((cols - 24) / zoom_scale)))
     title = colorize("OBD-II TERMINAL // CYBERPUNK", "bright_cyan", use_color)
     lines.append(colorize(title, "bold", use_color))
     lines.append(colorize("=" * 84, "bright_blue", use_color))

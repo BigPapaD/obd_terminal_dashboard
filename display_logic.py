@@ -13,7 +13,7 @@ from models import (
 )
 
 
-def render_regular_bar(ratio: float, width: int, filled_char: str = "=", empty_char: str = "-") -> str:
+def render_regular_bar(ratio: float, width: int, filled_char: str = "█", empty_char: str = "░") -> str:
     if width <= 0:
         return ""
     ratio = clamp(ratio, 0.0, 1.0)

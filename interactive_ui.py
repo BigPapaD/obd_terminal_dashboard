@@ -139,7 +139,7 @@ def proportional_sizes(total: int, ratios: Sequence[int], minimum: int) -> List[
     return sizes
 
 
-def build_layout(max_y: int, max_x: int) -> Dict[str, PanelRect]:
+def build_layout(max_y: int, max_x: int, edit_mode: bool = True) -> Dict[str, PanelRect]:
     footer_height = 1
     body_top = 1
     body_height = max_y - body_top - footer_height
@@ -147,21 +147,36 @@ def build_layout(max_y: int, max_x: int) -> Dict[str, PanelRect]:
     left_width = max_x - right_width
 
     main_rect = PanelRect(top=body_top, left=0, height=body_height, width=left_width)
-    right_heights = proportional_sizes(body_height, [34, 30, 36], minimum=5)
-
-    speed_rect = PanelRect(top=body_top, left=left_width, height=right_heights[0], width=right_width)
-    alerts_rect = PanelRect(
-        top=body_top + right_heights[0],
-        left=left_width,
-        height=right_heights[1],
-        width=right_width,
-    )
-    controls_rect = PanelRect(
-        top=alerts_rect.top + alerts_rect.height,
-        left=left_width,
-        height=right_heights[2],
-        width=right_width,
-    )
+    if edit_mode:
+        right_heights = proportional_sizes(body_height, [34, 30, 36], minimum=5)
+        speed_rect = PanelRect(top=body_top, left=left_width, height=right_heights[0], width=right_width)
+        alerts_rect = PanelRect(
+            top=body_top + right_heights[0],
+            left=left_width,
+            height=right_heights[1],
+            width=right_width,
+        )
+        controls_rect = PanelRect(
+            top=alerts_rect.top + alerts_rect.height,
+            left=left_width,
+            height=right_heights[2],
+            width=right_width,
+        )
+    else:
+        right_heights = proportional_sizes(body_height, [62, 38], minimum=6)
+        speed_rect = PanelRect(top=body_top, left=left_width, height=right_heights[0], width=right_width)
+        alerts_rect = PanelRect(
+            top=body_top + right_heights[0],
+            left=left_width,
+            height=right_heights[1],
+            width=right_width,
+        )
+        controls_rect = PanelRect(
+            top=alerts_rect.top + alerts_rect.height,
+            left=left_width,
+            height=0,
+            width=right_width,
+        )
     return {
         "main": main_rect,
         "speed": speed_rect,
@@ -362,7 +377,7 @@ def draw_speed_widget(
     speed_focus_attr = theme["selected"] if edit_mode and edit_target == "speed" else theme["title_focus"]
 
     reserved_rows = 2 if edit_mode and rect.height >= 7 else 0
-    unit_rows = 1
+    unit_rows = 0
     digit_rows_available = max(1, rect.height - 2 - reserved_rows - unit_rows)
 
     # Higher zoom prefers a larger glyph scale; renderer still caps to fit available panel space.
@@ -385,11 +400,6 @@ def draw_speed_widget(
     for idx, line in enumerate(digit_lines[:digit_rows_available]):
         x_offset = max(0, (inner_width - len(line)) // 2)
         safe_addstr(stdscr, rect.top + 1 + top_offset + idx, rect.left + 2 + x_offset, line[:inner_width], speed_focus_attr)
-
-    unit_line_row = rect.top + 1 + digit_rows_available
-    unit_line = f"{speed_digits.strip()} {unit_text}"
-    unit_x_offset = max(0, (inner_width - len(unit_line)) // 2)
-    safe_addstr(stdscr, unit_line_row, rect.left + 2 + unit_x_offset, unit_line[:inner_width], theme["header"])
 
     if edit_mode and rect.height >= 6:
         warn_row = rect.top + rect.height - 3
@@ -550,7 +560,10 @@ def render_compact_row(
     is_active_target = selected and edit_target == "selected"
     pointer = "▶" if selected and edit_mode and is_active_target else " "
     safe_zoom = max(0.7, min(3.0, zoom))
-    bar_width = max(10, min(46, int((row_width - 28) / safe_zoom)))
+    # Keep bars near maximum readable width; zoom still scales but less aggressively.
+    max_bar_space = max(12, row_width - 24)
+    zoom_scale = max(0.9, safe_zoom * 0.75)
+    bar_width = max(12, min(max_bar_space, int(max_bar_space / zoom_scale)))
     ratio = clamp((value - gauge.min_value) / (gauge.max_value - gauge.min_value), 0.0, 1.0) if gauge.max_value > gauge.min_value else 0.0
     bar = render_regular_bar(ratio, bar_width)
     display_value = value_to_display(gauge, value, unit_preferences)
@@ -590,7 +603,7 @@ def draw_interactive_dashboard(
         stdscr.refresh()
         return
 
-    layout = build_layout(max_y, max_x)
+    layout = build_layout(max_y, max_x, edit_mode=edit_mode)
     draw_panel(
         stdscr,
         layout["main"],
@@ -606,7 +619,8 @@ def draw_interactive_dashboard(
         title_attr=theme["title_focus"],
     )
     draw_panel(stdscr, layout["alerts"], "Alerts", border_attr=theme["border"], title_attr=theme["title"])
-    draw_panel(stdscr, layout["controls"], "Controls", border_attr=theme["border"], title_attr=theme["title"])
+    if edit_mode:
+        draw_panel(stdscr, layout["controls"], "Controls", border_attr=theme["border"], title_attr=theme["title"])
 
     draw_gauges_widget(
         stdscr,
@@ -637,22 +651,23 @@ def draw_interactive_dashboard(
         unit_preferences,
         theme,
     )
-    draw_controls_widget(
-        stdscr,
-        layout["controls"],
-        gauges,
-        selected_index,
-        selected_field,
-        edit_mode,
-        edit_active,
-        edit_target,
-        interval,
-        zoom,
-        message,
-        thresholds,
-        unit_preferences,
-        theme,
-    )
+    if edit_mode:
+        draw_controls_widget(
+            stdscr,
+            layout["controls"],
+            gauges,
+            selected_index,
+            selected_field,
+            edit_mode,
+            edit_active,
+            edit_target,
+            interval,
+            zoom,
+            message,
+            thresholds,
+            unit_preferences,
+            theme,
+        )
     draw_footer(stdscr, layout["footer"], theme)
 
     stdscr.refresh()
@@ -767,7 +782,7 @@ def run_interactive(
                 theme=theme,
             )
             max_y, max_x = stdscr.getmaxyx()
-            layout = build_layout(max_y, max_x)
+            layout = build_layout(max_y, max_x, edit_mode=edit_mode)
 
             key = stdscr.getch()
             if key == -1:
